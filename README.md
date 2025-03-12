@@ -1,12 +1,14 @@
 # Eros - Um Bot de Discord inspirado no Mudae
 
-O **Eros** é um bot de Discord inspirado no famoso bot **Mudae**, que permite aos usuários "paquerar" e "casar" com personagens adicionados ao banco de dados. Além disso, o bot inclui um sistema de economia baseado em "Eritos", que podem ser coletados e usados para trocar personagens entre usuários.
+O **Eros** é um bot de Discord inspirado no famoso bot **Mudae**, que permite aos usuários "paquerar", tentar conquistar e "casar" com personagens adicionados ao banco de dados. Além disso, o bot inclui um sistema de economia baseado em "Eritos", que podem ser coletados e usados para trocar personagens entre usuários. O bot também permite a personalização de vantagens para personagens específicos, tendo uma vantagem maior durante as tentativas de conquista.
+
+---
 
 ## Funcionalidades Principais
 
 ### 1. **Paquerar Personagens**
    - Comando: `/paquerar`
-   - Descrição: O bot seleciona um personagem aleatório disponível para o usuário tentar conquistar. O usuário pode "atirar" uma flecha de Eros para tentar conquistar o personagem. O sucesso é determinado por um sistema de rolagem de dados.
+   - Descrição: O bot seleciona um personagem aleatório disponível para o usuário tentar conquistar. O sucesso é determinado por um sistema de rolagem de dados, onde o usuário precisa tirar um número maior ou igual ao número do personagem (com sua vantagem aplicada).
    - Cooldown: O usuário pode tentar conquistar personagens até 5 vezes a cada 18 horas. Após 5 tentativas, o usuário deve esperar o cooldown para tentar novamente.
 
 ### 2. **Casar com Personagens**
@@ -34,6 +36,9 @@ O **Eros** é um bot de Discord inspirado no famoso bot **Mudae**, que permite a
    - **Ver Saldo**
      - Comando: `/saldo`
      - Descrição: Exibe a quantidade de Eritos que o usuário possui.
+   - **Ver Saldo de Outro Usuário**
+     - Comando: `/ver_saldo <usuário>`
+     - Descrição: Exibe a quantidade de Eritos de outro usuário.
    - **Oferecer Troca**
      - Comando: `/oferecer_troca <personagem> <destinatario> <quantidade_eritos>`
      - Descrição: Permite ao usuário oferecer um personagem que ele conquistou em troca de Eritos de outro usuário.
@@ -44,26 +49,31 @@ O **Eros** é um bot de Discord inspirado no famoso bot **Mudae**, que permite a
    - Comando: `/rank`
    - Descrição: Exibe o top 10 usuários com mais Eritos.
 
-### 8. **Comandos de Administração**
+### 8. **Vantagens Personalizadas para Personagens**
+   - **Definir Vantagem**
+     - Comando: `/definir_vantagem <nome_do_personagem> <vantagem>`
+     - Descrição: Permite ao dono do bot definir uma vantagem personalizada para um personagem específico. Por exemplo, **Goku** pode ter uma vantagem de +15.
+     - Exemplo: `/definir_vantagem "Goku" 15`
+
+### 9. **Comandos de Administração**
    - **Excluir Personagem**
      - Comando: `/excluir_personagem <nome>`
      - Descrição: Remove um personagem do banco de dados. Apenas o dono do bot pode usar este comando.
    - **Limpar Todos os Amores**
-     - Comando: `/limpar_amores`
+     - Comando: `/resetar_status`
      - Descrição: Remove todos os relacionamentos e marca todos os personagens como disponíveis. Apenas o dono do bot pode usar este comando.
    - **Resetar Cooldowns**
      - Comando: `/resetar_cooldowns`
-     - Descrição: Reseta o cooldown de paquera de todos os usuários. Apenas o dono do bot pode usar este comando.
-   - **Resetar Eritos**
-     - Comando: `/resetar_eritos`
-     - Descrição: Reseta os Eritos de todos os usuários para 0. Apenas o dono do bot pode usar este comando.
-   - **Resetar Casamentos**
-     - Comando: `/resetar_casamentos`
-     - Descrição: Reseta o cooldown de casamentos de todos os usuários. Apenas o dono do bot pode usar este comando.
+     - Descrição: Reseta o cooldown de paquera, casamento e coleta de Eritos de todos os usuários. Apenas o dono do bot pode usar este comando.
+   - **Alterar Imagem de Personagem**
+     - Comando: `/alterar_imagem_personagem <nome> <nova_imagem_url>`
+     - Descrição: Permite ao dono do bot alterar a imagem de um personagem.
+
+---
 
 ## Configuração
 
-### 1. **Clone o repositório**
+### 1. **Clone o Repositório**
 
 ### 2. **Instalação das Dependências**
    - O bot utiliza as seguintes bibliotecas Python:
@@ -76,12 +86,14 @@ O **Eros** é um bot de Discord inspirado no famoso bot **Mudae**, que permite a
      ```
      pip install discord.py 
      ```
-
+     
 ### 3. **Configuração do Bot**
-   - No arquivo `bot.py`, substitua `'Seu token'` pelo token do seu bot do Discord.
+   - No arquivo `bot.py`, substitua `'Seu Token'` pelo token do seu bot do Discord.
    - Defina o ID do dono do bot na variável `SEU_ID`.
 
-### 4. **Execute o bot**
+### 4. **Execute o Bot**
+
+---
 
 ## Estrutura do Banco de Dados
 
@@ -92,6 +104,7 @@ O bot utiliza um banco de dados SQLite (`eros.db`) para armazenar informações 
   - `nome`: Nome do personagem.
   - `imagem`: URL da imagem do personagem.
   - `conquistado`: Indica se o personagem foi conquistado (0 = disponível, 1 = conquistado).
+  - `vantagem`: Vantagem do personagem durante as tentativas de conquista (padrão: +2).
 
 - **amores**: Armazena os relacionamentos entre usuários e personagens.
   - `usuario_id`: ID do usuário que conquistou o personagem.
@@ -115,4 +128,5 @@ O bot utiliza um banco de dados SQLite (`eros.db`) para armazenar informações 
   - `destinatario_id`: ID do usuário que recebeu a proposta.
   - `quantidade_eritos`: Quantidade de Eritos oferecidos.
 
+---
 Contribuições são bem-vindas!
