@@ -282,11 +282,85 @@ class ErosBot(discord.Client):
             """, (usuario_id, datetime.now().isoformat(), datetime.now().isoformat()))
             await db.commit()
 
+    async def listar_todos_personagens(self):
+        """Lista todos os personagens do banco de dados, marcando os casados com um coração."""
+        async with aiosqlite.connect("eros.db") as db:
+            cursor = await db.execute("SELECT nome, conquistado FROM personagens")
+            personagens = await cursor.fetchall()
+            return [(nome, "❤️" if conquistado else "") for nome, conquistado in personagens]
+
+    async def exibir_lista_paginada(self, interaction: discord.Interaction, titulo: str, dados: list, itens_por_pagina: int = 15):
+        """Função genérica para exibir listas paginadas."""
+        if not dados:
+            await interaction.response.send_message(f"⚠️ Nenhum dado encontrado para {titulo.lower()}!")
+            return
+
+        # Divide a lista em partes de `itens_por_pagina`
+        partes = [dados[i:i + itens_por_pagina] for i in range(0, len(dados), itens_por_pagina)]
+        total_partes = len(partes)
+
+        # Cria a view com botões de navegação
+        view = ListaPaginadaView(partes, total_partes, interaction.user, titulo)
+
+        # Envia a primeira parte
+        lista = "\n".join(f"{item[0]} {item[1]}" for item in partes[0])
+        embed = discord.Embed(
+            title=titulo,
+            description=f"**Página 1 de {total_partes}**\n{lista}",
+            color=discord.Color.pink()
+        )
+        await interaction.response.send_message(embed=embed, view=view)
+
+class ListaPaginadaView(discord.ui.View):
+    """View genérica para navegar entre páginas de uma lista."""
+    def __init__(self, partes, total_partes, usuario, titulo):
+        super().__init__()
+        self.partes = partes
+        self.total_partes = total_partes
+        self.pagina_atual = 0
+        self.usuario = usuario
+        self.titulo = titulo
+
+    @discord.ui.button(emoji="⬅️", style=discord.ButtonStyle.secondary)
+    async def anterior(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user != self.usuario:
+            await interaction.response.send_message("❌ Esse não é o seu comando!", ephemeral=True)
+            return
+
+        self.pagina_atual = (self.pagina_atual - 1) % self.total_partes
+        lista = "\n".join(f"{item[0]} {item[1]}" for item in self.partes[self.pagina_atual])
+        embed = discord.Embed(
+            title=self.titulo,
+            description=f"**Página {self.pagina_atual + 1} de {self.total_partes}**\n{lista}",
+            color=discord.Color.pink()
+        )
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(emoji="➡️", style=discord.ButtonStyle.secondary)
+    async def proximo(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user != self.usuario:
+            await interaction.response.send_message("❌ Esse não é o seu comando!", ephemeral=True)
+            return
+
+        self.pagina_atual = (self.pagina_atual + 1) % self.total_partes
+        lista = "\n".join(f"{item[0]} {item[1]}" for item in self.partes[self.pagina_atual])
+        embed = discord.Embed(
+            title=self.titulo,
+            description=f"**Página {self.pagina_atual + 1} de {self.total_partes}**\n{lista}",
+            color=discord.Color.pink()
+        )
+        await interaction.response.edit_message(embed=embed, view=self)
+
 bot = ErosBot()
 
 # Adição de personagem ao banco de dados
 @bot.tree.command(name="adicionar_personagem", description="📝 Adicione um novo personagem.")
 async def adicionar_personagem(interaction: discord.Interaction, nome: str, imagem_url: str):
+    # Verifica se a URL da imagem é válida
+    if not imagem_url.startswith(("http://", "https://")):
+        await interaction.response.send_message("❌ A URL da imagem deve começar com 'http://' ou 'https://'.", ephemeral=True)
+        return
+
     sucesso = await bot.adicionar_personagem(nome, imagem_url)
     if sucesso:
         await interaction.response.send_message(f"✅ **{nome}** foi adicionado ao banco de dados!")
@@ -314,11 +388,13 @@ async def perfil_personagem(interaction: discord.Interaction, nome: str):
         await interaction.response.send_message("⚠️ Personagem não encontrado!")
         return
 
+    nome_personagem, imagem_url = personagem
+
     dono_id = await bot.obter_dono_personagem(nome)
     dono_info = f"❤️ Em um relacionamento com <@{dono_id}>" if dono_id else "Pode ser conquistado"
 
-    embed = discord.Embed(title=f"{personagem[0]}", color=discord.Color.pink())
-    embed.set_image(url=personagem[1])
+    embed = discord.Embed(title=f"{nome_personagem}", color=discord.Color.pink())
+    embed.set_image(url=imagem_url)
     embed.add_field(name="Status", value=dono_info, inline=False)
 
     await interaction.response.send_message(embed=embed)
@@ -382,7 +458,7 @@ class FlerteView(discord.ui.View):
         self.pressionado = True
 
         num_user = random.randint(1, 20)
-        num_personagem = random.randint(1, 20) + 3  # Adiciona +3 de vantagem ao número do personagem
+        num_personagem = random.randint(1, 20) + 2  # Adiciona +2 de vantagem ao número do personagem
 
         if num_user >= num_personagem:
             await bot.adicionar_amor(interaction.user.id, self.personagem)
@@ -404,15 +480,22 @@ async def divorciar(interaction: discord.Interaction, personagem: str):
     else:
         await interaction.response.send_message("❌ Você não pode se divorciar de um personagem que não te pertence!")
 
-# Limpar todos os relacionamentos (apenas para o dono do bot)
-@bot.tree.command(name="limpar_amores", description="[Dono] Limpa todos os relacionamentos.")
-async def limpar_amores(interaction: discord.Interaction):
+# Limpar todos os relacionamentos e resetar Eritos
+@bot.tree.command(name="resetar_status", description="[Dono] Reseta todos os relacionamentos e saldo de Eritos.")
+async def resertar_status(interaction: discord.Interaction):
     if interaction.user.id != SEU_ID:
         await interaction.response.send_message("❌ Você não tem permissão para usar este comando!", ephemeral=True)
         return
 
-    await bot.limpar_todos_amores()
-    await interaction.response.send_message("✅ Todos os personagens sofreram divórcio e estão disponíveis novamente.")
+    async with aiosqlite.connect("eros.db") as db:
+        # Limpa todos os relacionamentos
+        await db.execute("DELETE FROM amores")
+        await db.execute("UPDATE personagens SET conquistado = 0")
+        # Reseta os Eritos de todos os usuários
+        await db.execute("UPDATE moedas SET eritos = 0")
+        await db.commit()
+
+    await interaction.response.send_message("✅ Todos os relacionamentos e saldo de Eritos resetados!")
 
 # Listar os personagens conquistados pelo usuário (em partes de 15 em 15)
 @bot.tree.command(name="meus_amores", description="💞 Veja a lista de personagens com quem você está casado.")
@@ -422,65 +505,39 @@ async def meus_amores(interaction: discord.Interaction):
         await interaction.response.send_message("💔 Você ainda não conquistou ninguém.")
         return
 
-    # Divide a lista em partes de 15 personagens
-    partes = [amores[i:i + 15] for i in range(0, len(amores), 15)]
-    total_partes = len(partes)
+    # Formata os dados para a função genérica
+    dados = [(nome, "❤️") for nome in amores]
+    await bot.exibir_lista_paginada(interaction, "Seus amores", dados)
 
-    # Cria a view com botões de navegação
-    view = AmoresView(partes, total_partes, interaction.user)
-
-    # Envia a primeira parte
-    lista = "\n".join(f"❤️ {nome}" for nome in partes[0])
-    embed = discord.Embed(
-        title="Seus amores",
-        description=f"**Página 1 de {total_partes}**\n{lista}",
-        color=discord.Color.pink()
-    )
-    await interaction.response.send_message(embed=embed, view=view)
-
-class AmoresView(discord.ui.View):
-    def __init__(self, partes, total_partes, usuario):
-        super().__init__()
-        self.partes = partes
-        self.total_partes = total_partes
-        self.pagina_atual = 0
-        self.usuario = usuario
-
-    @discord.ui.button(emoji="⬅️", style=discord.ButtonStyle.secondary)
-    async def anterior(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user != self.usuario:
-            await interaction.response.send_message("❌ Esse não é o seu comando!", ephemeral=True)
-            return
-
-        self.pagina_atual = (self.pagina_atual - 1) % self.total_partes
-        lista = "\n".join(f"❤️ {nome}" for nome in self.partes[self.pagina_atual])
-        embed = discord.Embed(
-            title="Seus amores",
-            description=f"**Página {self.pagina_atual + 1} de {self.total_partes}**\n{lista}",
-            color=discord.Color.pink()
-        )
-        await interaction.response.edit_message(embed=embed, view=self)
-
-    @discord.ui.button(emoji="➡️", style=discord.ButtonStyle.secondary)
-    async def proximo(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user != self.usuario:
-            await interaction.response.send_message("❌ Esse não é o seu comando!", ephemeral=True)
-            return
-
-        self.pagina_atual = (self.pagina_atual + 1) % self.total_partes
-        lista = "\n".join(f"❤️ {nome}" for nome in self.partes[self.pagina_atual])
-        embed = discord.Embed(
-            title="Seus amores",
-            description=f"**Página {self.pagina_atual + 1} de {self.total_partes}**\n{lista}",
-            color=discord.Color.pink()
-        )
-        await interaction.response.edit_message(embed=embed, view=self)
+# Listar todos os personagens do banco de dados
+@bot.tree.command(name="listar_personagens", description="📜 Lista todos os personagens do banco de dados.")
+async def listar_personagens(interaction: discord.Interaction):
+    personagens = await bot.listar_todos_personagens()
+    await bot.exibir_lista_paginada(interaction, "Todos os personagens", personagens)
 
 # Verificar saldo de Eritos
 @bot.tree.command(name="saldo", description="💰 Veja quantos Eritos você possui.")
 async def saldo(interaction: discord.Interaction):
     eritos = await bot.obter_eritos(interaction.user.id)
     await interaction.response.send_message(f"💰 Você possui **{eritos}** Eritos.")
+
+# Verificar saldo de Eritos de outro usuário
+@bot.tree.command(name="ver_saldo", description="💰 Veja quantos Eritos outro usuário possui.")
+async def ver_saldo(interaction: discord.Interaction, usuario: discord.User):
+    eritos = await bot.obter_eritos(usuario.id)
+    await interaction.response.send_message(f"💰 {usuario.mention} possui **{eritos}** Eritos.")
+
+# Verificar amores de outro usuário
+@bot.tree.command(name="ver_amores", description="💞 Veja a lista de personagens com quem outro usuário está casado.")
+async def ver_amores(interaction: discord.Interaction, usuario: discord.User):
+    amores = await bot.listar_amores(usuario.id)
+    if not amores:
+        await interaction.response.send_message(f"💔 {usuario.mention} ainda não conquistou ninguém.")
+        return
+
+    # Formata os dados para a função genérica
+    dados = [(nome, "❤️") for nome in amores]
+    await bot.exibir_lista_paginada(interaction, f"Amores de {usuario.name}", dados)
 
 # Adicionar ou remover Eritos (apenas para o dono do bot)
 @bot.tree.command(name="gerenciar_eritos", description="[Dono] Adiciona ou remove Eritos de um usuário.")
@@ -501,6 +558,10 @@ async def gerenciar_eritos(interaction: discord.Interaction, usuario: discord.Us
 async def oferecer_troca(interaction: discord.Interaction, personagem: str, destinatario: discord.User, quantidade_eritos: int):
     if destinatario.id == interaction.user.id:
         await interaction.response.send_message("❌ Você não pode oferecer um personagem para si mesmo!", ephemeral=True)
+        return
+
+    if quantidade_eritos < 0:
+        await interaction.response.send_message("❌ A quantidade de Eritos deve ser maior ou igual a zero!", ephemeral=True)
         return
 
     dono = await bot.obter_dono_personagem(personagem)
@@ -567,56 +628,55 @@ async def coletar(interaction: discord.Interaction):
         )
         return
 
-    eritos_ganhos = random.randint(0, 100)     # Gera uma quantidade aleatória de Eritos (0 a 100)
+    # Gera uma quantidade aleatória de Eritos (0 a 100)
+    eritos_ganhos = random.randint(0, 100)
 
-    await bot.adicionar_eritos(interaction.user.id, eritos_ganhos)     # Adiciona os Eritos ao usuário
+    # Adiciona os Eritos ao usuário
+    await bot.adicionar_eritos(interaction.user.id, eritos_ganhos)
 
-    await bot.atualizar_cooldown_coletar(interaction.user.id)     # Atualiza o cooldown
+    # Atualiza o cooldown
+    await bot.atualizar_cooldown_coletar(interaction.user.id)
 
     await interaction.response.send_message(
         f"💸 <@{interaction.user.id}> coletou **{eritos_ganhos}** Eritos! Volte em 18 horas para coletar mais."
     )
 
-#Resetar Cooldowns
-@bot.tree.command(name="resetar_cooldowns", description="[Dono] Reseta o cooldown de paquera de todos os usuários.")
+# Resetar todos os cooldowns e o tempo de coleta de Eritos
+@bot.tree.command(name="resetar_cooldowns", description="[Dono] Reseta todos os cooldowns (paquerar, casamento e coleta).")
 async def resetar_cooldowns(interaction: discord.Interaction):
     if interaction.user.id != SEU_ID:
         await interaction.response.send_message("❌ Você não tem permissão para usar este comando!", ephemeral=True)
         return
 
     async with aiosqlite.connect("eros.db") as db:
-        await db.execute("UPDATE cooldowns SET tentativas = 0, tempo = NULL")
+        # Reseta o cooldown de casamentos, paquera e coleta de Eritos
+        await db.execute("UPDATE cooldowns SET tentativas = 0, tempo = NULL, ultimo_casamento = NULL, ultimo_coletar = NULL")
         await db.commit()
 
-    await interaction.response.send_message("✅ Cooldowns de paquera resetados para todos os usuários!")
+    await interaction.response.send_message("✅ Todos os cooldowns (paquerar, casamento e coleta) foram resetados!")
 
-@bot.tree.command(name="resetar_eritos", description="[Dono] Reseta os Eritos de todos os usuários para 0.")
-async def resetar_eritos(interaction: discord.Interaction):
-    if interaction.user.id != SEU_ID:
-        await interaction.response.send_message("❌ Você não tem permissão para usar este comando!", ephemeral=True)
+# Alterar a imagem de um personagem
+@bot.tree.command(name="alterar_imagem_personagem", description="🖼️ Altere a imagem de um personagem.")
+async def alterar_imagem_personagem(interaction: discord.Interaction, nome: str, nova_imagem_url: str):
+    # Verifica se a URL da imagem é válida
+    if not nova_imagem_url.startswith(("http://", "https://")):
+        await interaction.response.send_message("❌ A URL da imagem deve começar com 'http://' ou 'https://'.", ephemeral=True)
         return
 
     async with aiosqlite.connect("eros.db") as db:
-        await db.execute("UPDATE moedas SET eritos = 0")
+        # Verifica se o personagem existe
+        cursor = await db.execute("SELECT 1 FROM personagens WHERE LOWER(nome) = LOWER(?)", (nome,))
+        if not await cursor.fetchone():
+            await interaction.response.send_message("❌ Personagem não encontrado!", ephemeral=True)
+            return
+
+        # Atualiza a imagem do personagem
+        await db.execute("UPDATE personagens SET imagem = ? WHERE LOWER(nome) = LOWER(?)", (nova_imagem_url, nome))
         await db.commit()
 
-    await interaction.response.send_message("✅ Eritos de todos os usuários foram resetados para 0!")
+    await interaction.response.send_message(f"✅ A imagem de **{nome}** foi atualizada com sucesso!")
 
-@bot.tree.command(name="resetar_casamentos", description="[Dono] Reseta o cooldown de casamentos de todos os usuários.")
-async def resetar_casamentos(interaction: discord.Interaction):
-    # Verifica se o comando está sendo executado pelo dono do bot
-    if interaction.user.id != SEU_ID:
-        await interaction.response.send_message("❌ Você não tem permissão para usar este comando!", ephemeral=True)
-        return
-
-    async with aiosqlite.connect("eros.db") as db:
-        # Reseta o cooldown de casamentos (define ultimo_casamento como NULL)
-        await db.execute("UPDATE cooldowns SET ultimo_casamento = NULL")
-        await db.commit()
-
-    await interaction.response.send_message("✅ Cooldown de casamentos resetado para todos os usuários!")
-
-#Rank
+# RANK
 @bot.tree.command(name="rank", description="🏆 Exibe o top 10 usuários com mais Eritos.")
 async def rank(interaction: discord.Interaction):
     async with aiosqlite.connect("eros.db") as db:
