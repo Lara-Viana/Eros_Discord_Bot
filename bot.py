@@ -5,6 +5,7 @@ from discord import app_commands
 from datetime import datetime, timedelta
 from discord.ui import Button, View
 
+# Defina seu ID de usuário aqui
 SEU_ID = 0  # Substitua pelo seu ID real
 
 class ErosBot(discord.Client):
@@ -22,7 +23,8 @@ class ErosBot(discord.Client):
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     nome TEXT NOT NULL COLLATE NOCASE UNIQUE,
                     imagem TEXT NOT NULL,
-                    conquistado INTEGER DEFAULT 0
+                    conquistado INTEGER DEFAULT 0,
+                    vantagem INTEGER DEFAULT 2  -- Vantagem padrão é +2
                 )
             """)
             # Cria a tabela de amores, se não existir
@@ -42,9 +44,9 @@ class ErosBot(discord.Client):
                     ultimo_coletar TEXT  -- Nova coluna para armazenar o último uso do comando /coletar
                 )
             """)
-            # Adiciona a coluna `ultimo_coletar` se ela não existir
+            # Adiciona a coluna `vantagem` se ela não existir
             try:
-                await db.execute("ALTER TABLE cooldowns ADD COLUMN ultimo_coletar TEXT")
+                await db.execute("ALTER TABLE personagens ADD COLUMN vantagem INTEGER DEFAULT 2")
             except aiosqlite.OperationalError:
                 pass  # A coluna já existe, não faz nada
             # Cria a tabela de moedas, se não existir
@@ -457,12 +459,18 @@ class FlerteView(discord.ui.View):
 
         self.pressionado = True
 
+        # Obtém a vantagem do personagem
+        async with aiosqlite.connect("eros.db") as db:
+            cursor = await db.execute("SELECT vantagem FROM personagens WHERE nome = ?", (self.personagem,))
+            resultado = await cursor.fetchone()
+            vantagem = resultado[0] if resultado else 2  # Vantagem padrão é +2
+
         num_user = random.randint(1, 20)
-        num_personagem = random.randint(1, 20) + 2  # Adiciona +2 de vantagem ao número do personagem
+        num_personagem = random.randint(1, 20) + vantagem  # Adiciona a vantagem do personagem
 
         if num_user >= num_personagem:
             await bot.adicionar_amor(interaction.user.id, self.personagem)
-            resposta = f"💘 Eros acertou em cheio! Agora você esta casado com **{self.personagem}**!\n🎲 Eros tirou **{num_user}** e seu alvo **{num_personagem}**."
+            resposta = f"💘 Eros acertou em cheio! Agora você está casado com **{self.personagem}**!\n🎲 Eros tirou **{num_user}** e seu alvo **{num_personagem}**."
             await bot.update_cooldown(interaction.user.id, casou=True)
         else:
             resposta = f"💔 {self.personagem} esquivou, não foi dessa vez...\n🎲 Eros tirou **{num_user}** e seu alvo **{num_personagem}**."
@@ -710,5 +718,25 @@ async def rank(interaction: discord.Interaction):
     )
 
     await interaction.response.send_message(embed=embed)
+
+# Comando para definir vantagem específica de um personagem
+@bot.tree.command(name="definir_vantagem", description="[Dono] Define a vantagem de um personagem.")
+async def definir_vantagem(interaction: discord.Interaction, nome: str, vantagem: int):
+    if interaction.user.id != SEU_ID:
+        await interaction.response.send_message("❌ Você não tem permissão para usar este comando!", ephemeral=True)
+        return
+
+    async with aiosqlite.connect("eros.db") as db:
+        # Verifica se o personagem existe
+        cursor = await db.execute("SELECT 1 FROM personagens WHERE LOWER(nome) = LOWER(?)", (nome,))
+        if not await cursor.fetchone():
+            await interaction.response.send_message("❌ Personagem não encontrado!", ephemeral=True)
+            return
+
+        # Atualiza a vantagem do personagem
+        await db.execute("UPDATE personagens SET vantagem = ? WHERE LOWER(nome) = LOWER(?)", (vantagem, nome))
+        await db.commit()
+
+    await interaction.response.send_message(f"✅ A vantagem de **{nome}** foi definida como **{vantagem}**.")
 
 bot.run('SEU TOKEN') # Substitua pelo seu token
